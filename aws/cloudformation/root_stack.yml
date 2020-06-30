@@ -1,0 +1,8 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This is the root stack
+
+Resources: 
+  rootStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL : "https://nested-stacks-academy.s3.amazonaws.com/s3_static.yml"
