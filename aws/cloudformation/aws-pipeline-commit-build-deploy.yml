@@ -1,709 +1,481 @@
-{
-  "AWSTemplateFormatVersion" : "2010-09-09",
-
-  "Description" : "Roles, S3 bucket, CodeDeploy and CodePipeline setup",
-
-  "Parameters" : {
-    "MainBranchName" : {
-      "Type" : "String",
-      "Default" : "master",
-      "Description" : "Enter main branch name. Default is master."
-    },
-    "DevBranchName" : {
-      "Type" : "String",
-      "Default" : "develop",
-      "Description" : "Enter development branch name. Default is develop."
-    }
-  },
-
-  "Resources" : {
-
-    "WebAppRepo" : {
-      "Type" : "AWS::CodeCommit::Repository",
-      "Properties" : {
-        "RepositoryName" : "WebAppRepo",
-        "RepositoryDescription" : "a sample java application"
-      }
-    },
-
-    "CodeBuildTrustRole": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "AssumeRolePolicyDocument": {
-          "Statement": [
-            {
-              "Sid": "1",
-              "Effect": "Allow",
-              "Principal": {
-                "Service": [
-                  "codebuild.amazonaws.com"
-                ]
-              },
-              "Action": "sts:AssumeRole"
-            }
-          ]
-        },
-        "Path": "/"
-      }
-    },
-
-    "CodeBuildPolicy": {
-      "Type": "AWS::IAM::Policy",
-      "Properties": {
-        "PolicyName": "CodeBuildPolicy",
-        "PolicyDocument": {
-          "Statement": [
-              {
-                  "Effect": "Allow",
-                  "Resource": [
-                      { "Fn::Join" : ["", [ "arn:aws:logs:", { "Ref": "AWS::Region" } , ":", {"Ref" : "AWS::AccountId"}, ":log-group:/aws/codebuild/WebAppRepo" ]] },
-                      { "Fn::Join" : ["", [ "arn:aws:logs:", { "Ref": "AWS::Region" } , ":", {"Ref" : "AWS::AccountId"}, ":log-group:/aws/codebuild/WebAppRepo:*" ]] }
-
-                  ],
-                  "Action": [
-                      "logs:CreateLogGroup",
-                      "logs:CreateLogStream",
-                      "logs:PutLogEvents"
-                  ]
-              },
-              {
-                  "Effect": "Allow",
-                  "Resource": [
-                    { "Fn::Join" : ["", [ "arn:aws:s3:::cicd-demo-", { "Ref": "AWS::Region" } , "-", {"Ref" : "AWS::AccountId"} ]] },
-                    { "Fn::Join" : ["", [ "arn:aws:s3:::cicd-demo-", { "Ref": "AWS::Region" } , "-", {"Ref" : "AWS::AccountId"}, "/*"  ]]}
-                  ],
-                  "Action": [
-                      "s3:PutObject",
-                      "s3:GetObject",
-                      "s3:GetObjectVersion"
-                  ]
-              }
-          ]
-        },
-        "Roles": [{ "Ref": "CodeBuildTrustRole"}]
-      }
-    },
-
-    "CodeBuildProject": {
-      "Type": "AWS::CodeBuild::Project",
-      "Properties": {
-        "Name": "WebAppRepo",
-        "Description": "This is demo web app project",
-        "ServiceRole": { "Fn::GetAtt": [ "CodeBuildTrustRole", "Arn" ] },
-        "Artifacts": {
-          "Type": "CODEPIPELINE"
-        },
-        "Environment": {
-          "Type": "linuxContainer",
-          "ComputeType": "BUILD_GENERAL1_SMALL",
-          "Image": "aws/codebuild/java:openjdk-8",
-          "EnvironmentVariables": []
-        },
-        "Source": {
-          "Type": "CODEPIPELINE"
-        },
-        "TimeoutInMinutes": 30,
-        "Tags": []
-      }
-    },
-
-    "CodeDeployTrustRole": {
-      "Type" : "AWS::IAM::Role",
-      "Properties" : {
-        "AssumeRolePolicyDocument" : {
-          "Statement" : [
-            {
-              "Sid" : "",
-              "Effect" : "Allow",
-              "Principal" : {
-                "Service": [
-                    "codedeploy.amazonaws.com"
-                ]
-              },
-              "Action" : "sts:AssumeRole"
-            }
-          ]
-        },
-        "ManagedPolicyArns" : [ "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole" ],
-        "Path" : "/"
-      }
-    },
-
-    "MyApp" : {
-      "Type" : "AWS::CodeDeploy::Application",
-      "Properties" : {
-        "ApplicationName" : "WebAppRepo"
-      }
-    },
-
-    "DevDeploymentGroup" : {
-      "DependsOn" : "CodeDeployTrustRole",
-      "Type" : "AWS::CodeDeploy::DeploymentGroup",
-      "Properties" : {
-        "ApplicationName" : {"Ref" : "MyApp"},
-        "DeploymentGroupName" : "WebAppRepo-develop",
-        "DeploymentConfigName" : "CodeDeployDefault.OneAtATime",
-        "ServiceRoleArn" : {"Fn::GetAtt" : ["CodeDeployTrustRole", "Arn"]},
-        "Ec2TagFilters" : [{
-          "Key" : "EnvironmentType",
-          "Value" : "Development",
-          "Type" : "KEY_AND_VALUE"
-        }]
-      }
-    },
-
-    "ProdDeploymentGroup" : {
-      "DependsOn" : "CodeDeployTrustRole",
-      "Type" : "AWS::CodeDeploy::DeploymentGroup",
-      "Properties" : {
-        "ApplicationName" : {"Ref" : "MyApp"},
-        "DeploymentGroupName" : "WebAppRepo-master",
-        "DeploymentConfigName" : "CodeDeployDefault.OneAtATime",
-        "ServiceRoleArn" : {"Fn::GetAtt" : ["CodeDeployTrustRole", "Arn"]},
-        "Ec2TagFilters" : [{
-          "Key" : "EnvironmentType",
-          "Value" : "Production",
-          "Type" : "KEY_AND_VALUE"
-        }]
-      }
-    },
-
-    "CodePipelineTrustRole": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "AssumeRolePolicyDocument": {
-          "Statement": [
-            {
-              "Sid": "1",
-              "Effect": "Allow",
-              "Principal": {
-                "Service": [
-                  "codepipeline.amazonaws.com"
-                ]
-              },
-              "Action": "sts:AssumeRole"
-            }
-          ]
-        },
-        "Path": "/"
-      }
-    },
-
-    "CodePipelineRolePolicies": {
-      "Type": "AWS::IAM::Policy",
-      "Properties": {
-        "PolicyName": "CodePipelinePolicy",
-        "PolicyDocument": {
-          "Statement": [
-            {
-              "Action": [
-                "s3:*"
-              ],
-              "Resource": ["*"],
-              "Effect": "Allow"
-            },
-            {
-              "Action": [
-                "s3:PutBucketPolicy",
-                "s3:PutObject"
-              ],
-              "Resource": [
-                { "Fn::Join" : ["", [ "arn:aws:s3:::cicd-demo-", { "Ref": "AWS::Region" } , "-", {"Ref" : "AWS::AccountId"} ]] }
-              ],
-              "Effect": "Allow"
-            },
-            {
-            "Action": [
-                "codecommit:GetBranch",
-                "codecommit:GetCommit",
-                "codecommit:UploadArchive",
-                "codecommit:GetUploadArchiveStatus",
-                "codecommit:CancelUploadArchive"
-              ],
-              "Resource": "*",
-              "Effect": "Allow"
-            },
-            {
-              "Action": [
-                "codepipeline:*",
-                "iam:ListRoles",
-                "iam:PassRole",
-                "codedeploy:CreateDeployment",
-                "codedeploy:GetApplicationRevision",
-                "codedeploy:GetDeployment",
-                "codedeploy:GetDeploymentConfig",
-                "codedeploy:RegisterApplicationRevision",
-                "elasticbeanstalk:DescribeApplications",
-                "elasticbeanstalk:DescribeEnvironments",
-                "lambda:GetFunctionConfiguration",
-                "lambda:ListFunctions"
-              ],
-              "Resource": "*",
-              "Effect": "Allow"
-            },
-            {
-              "Action": [
-                  "codebuild:StartBuild",
-                  "codebuild:StopBuild",
-                  "codebuild:BatchGet*",
-                  "codebuild:Get*",
-                  "codebuild:List*",
-                  "codecommit:GetBranch",
-                  "codecommit:GetCommit",
-                  "codecommit:GetRepository",
-                  "codecommit:ListBranches",
-                  "s3:GetBucketLocation",
-                  "s3:ListAllMyBuckets"
-              ],
-              "Effect": "Allow",
-              "Resource": "*"
-          },
-          {
-              "Action": [
-                  "logs:GetLogEvents"
-              ],
-              "Effect": "Allow",
-              "Resource": "arn:aws:logs:*:*:log-group:/aws/codebuild/*:log-stream:*"
-          }
-          ]
-        },
-        "Roles": [{ "Ref": "CodePipelineTrustRole"}]
-      }
-    },
-
-"DevPipeline": {
-      "Type": "AWS::CodePipeline::Pipeline",
-      "DependsOn" : "S3Bucket",
-      "Properties": {
-        "Name": "WebAppRepo-develop",
-        "RoleArn": {"Fn::GetAtt" : ["CodePipelineTrustRole", "Arn"]},
-        "Stages": [
-          {
-            "Name": "Source",
-            "Actions": [
-              {
-                "Name": "ApplicationSource",
-                "InputArtifacts": [],
-                "ActionTypeId": {
-                  "Version": "1",
-                  "Category": "Source",
-                  "Owner" : "AWS",
-                  "Provider": "CodeCommit"
-                },
-                "OutputArtifacts": [
-                  {
-                    "Name": "WebAppRepo-SourceArtifact"
-                  }
-                ],
-                "Configuration": {
-                      "RepositoryName": "WebAppRepo",
-                      "BranchName": {"Ref":"DevBranchName"},
-                      "PollForSourceChanges": false
-                },
-                "RunOrder": 1
-              }
-            ]
-          },
-          {
-            "Name": "Build",
-            "Actions": [
-              {
-                "Name": "ApplicationBuild",
-                "InputArtifacts": [
-                  {
-                    "Name": "WebAppRepo-SourceArtifact"
-                  }
-                ],
-                "ActionTypeId": {
-                  "Category": "Build",
-                  "Owner": "AWS",
-                  "Version": "1",
-                  "Provider": "CodeBuild"
-                },
-                "OutputArtifacts": [
-                  {
-                    "Name": "WebAppRepo-BuiltArtifact"
-                  }
-                ],
-                "Configuration": {
-                  "ProjectName": "WebAppRepo"
-                },
-                "RunOrder": 1
-              }
-            ]
-          },
-          {
-            "Name": "DevelopDeploy",
-            "Actions": [
-              {
-                "Name": "DevelopDeploy",
-                "InputArtifacts": [
-                  {
-                    "Name": "WebAppRepo-BuiltArtifact"
-                  }
-                ],
-                "ActionTypeId": {
-                  "Category": "Deploy",
-                  "Owner": "AWS",
-                  "Version": "1",
-                  "Provider": "CodeDeploy"
-                },
-                "Configuration": {
-                  "ApplicationName": {"Ref" : "MyApp"},
-                  "DeploymentGroupName": {"Ref" : "DevDeploymentGroup"}
-                },
-                "RunOrder": 1
-              }
-            ]
-          }
-        ],
-        "ArtifactStore": {
-          "Type": "S3",
-          "Location": { "Fn::Join" : ["", [ "cicd-demo-", { "Ref": "AWS::Region" } , "-", {"Ref" : "AWS::AccountId"} ]] }
-        }
-      }
-    },    
-    
-"MasterPipeline": {
-      "Type": "AWS::CodePipeline::Pipeline",
-      "DependsOn" : "S3Bucket",
-      "Properties": {
-        "Name": "WebAppRepo-master",
-        "RoleArn": {"Fn::GetAtt" : ["CodePipelineTrustRole", "Arn"]},
-        "Stages": [
-          {
-            "Name": "Source",
-            "Actions": [
-              {
-                "Name": "ApplicationSource",
-                "InputArtifacts": [],
-                "ActionTypeId": {
-                  "Version": "1",
-                  "Category": "Source",
-                  "Owner" : "AWS",
-                  "Provider": "CodeCommit"
-                },
-                "OutputArtifacts": [
-                  {
-                    "Name": "WebAppRepo-SourceArtifact"
-                  }
-                ],
-                "Configuration": {
-                      "RepositoryName": "WebAppRepo",
-                      "BranchName": {"Ref":"MainBranchName"},
-                      "PollForSourceChanges": false
-                },
-                "RunOrder": 1
-              }
-            ]
-          },
-          {
-            "Name": "Build",
-            "Actions": [
-              {
-                "Name": "ApplicationBuild",
-                "InputArtifacts": [
-                  {
-                    "Name": "WebAppRepo-SourceArtifact"
-                  }
-                ],
-                "ActionTypeId": {
-                  "Category": "Build",
-                  "Owner": "AWS",
-                  "Version": "1",
-                  "Provider": "CodeBuild"
-                },
-                "OutputArtifacts": [
-                  {
-                    "Name": "WebAppRepo-BuiltArtifact"
-                  }
-                ],
-                "Configuration": {
-                  "ProjectName": "WebAppRepo"
-                },
-                "RunOrder": 1
-              }
-            ]
-          },
-          {
-            "Name": "MasterDeploy",
-            "Actions": [
-              {
-                "Name": "MasterDeploy",
-                "InputArtifacts": [
-                  {
-                    "Name": "WebAppRepo-BuiltArtifact"
-                  }
-                ],
-                "ActionTypeId": {
-                  "Category": "Deploy",
-                  "Owner": "AWS",
-                  "Version": "1",
-                  "Provider": "CodeDeploy"
-                },
-                "Configuration": {
-                  "ApplicationName": {"Ref" : "MyApp"},
-                  "DeploymentGroupName": {"Ref" : "ProdDeploymentGroup"}
-                },
-                "RunOrder": 1
-              }
-            ]
-          }
-        ],
-        "ArtifactStore": {
-          "Type": "S3",
-          "Location": { "Fn::Join" : ["", [ "cicd-demo-", { "Ref": "AWS::Region" } , "-", {"Ref" : "AWS::AccountId"} ]] }
-        }
-      }
-    },    
-
-    "AmazonCloudWatchEventRoleDevPipeline": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "AssumeRolePolicyDocument": {
-          "Version": "2012-10-17",
-          "Statement": [{
-            "Effect": "Allow",
-            "Principal": {
-              "Service": [
-                "events.amazonaws.com"
-              ]
-            },
-            "Action": "sts:AssumeRole"
-          }]
-        },
-    "Path": "/",
-    "Policies": [{
-      "PolicyName": "cwe-pipeline-execution",
-      "PolicyDocument": {
-        "Version": "2012-10-17",
-      "Statement": [{
-        "Effect": "Allow",
-        "Action": "codepipeline:StartPipelineExecution",
-        "Resource": {
-          "Fn::Join": [
-            "",
-            [
-              "arn:aws:codepipeline:",
-              {
-                "Ref": "AWS::Region"
-              },
-              ":",
-              {
-                "Ref": "AWS::AccountId"
-              },
-              ":WebAppRepo-develop"
-            ]
-          ]
-        }
-      }]
-      }
-    }]            
-    }
-  },
-
-    "AmazonCloudWatchEventRuleDevPipeline": {
-      "Type": "AWS::Events::Rule",
-      "Properties": {
-          "EventPattern": {
-              "source": [
-                  "aws.codecommit"
-              ],
-              "detail-type": [
-                  "CodeCommit Repository State Change"
-              ],
-              "resources": [
-                  {
-                      "Fn::Join": [
-                          "",
-                          [
-                              "arn:aws:codecommit:",
-                              {
-                                  "Ref": "AWS::Region"
-                              },
-                              ":",
-                              {
-                                  "Ref": "AWS::AccountId"
-                              },
-                              ":WebAppRepo"
-                          ]
-                      ]
-                  }
-              ],
-              "detail": {
-                  "event": [
-                      "referenceCreated",
-                      "referenceUpdated"
-                  ],
-                  "referenceType": [
-                      "branch"
-                  ],
-                  "referenceName": [
-                    {"Ref":"DevBranchName"}
-                  ]
-              }
-          },
-          "Targets": [
-              {
-                  "Arn": {
-                      "Fn::Join": [
-                          "",
-                          [
-                              "arn:aws:codepipeline:",
-                              {
-                                  "Ref": "AWS::Region"
-                              },
-                              ":",
-                              {
-                                  "Ref": "AWS::AccountId"
-                              },
-                              ":WebAppRepo-develop"
-                          ]
-                      ]
-                  },
-                  "RoleArn": {
-                      "Fn::GetAtt": [
-                          "AmazonCloudWatchEventRoleDevPipeline",
-                          "Arn"
-                      ]
-                  },
-                  "Id": "codepipeline-AppPipeline"
-              }
-          ]
-      }
-    },
-
-    "AmazonCloudWatchEventRoleMasterPipeline": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "AssumeRolePolicyDocument": {
-          "Version": "2012-10-17",
-          "Statement": [{
-            "Effect": "Allow",
-            "Principal": {
-              "Service": [
-                "events.amazonaws.com"
-              ]
-            },
-            "Action": "sts:AssumeRole"
-          }]
-        },
-    "Path": "/",
-    "Policies": [{
-      "PolicyName": "cwe-pipeline-execution",
-      "PolicyDocument": {
-        "Version": "2012-10-17",
-      "Statement": [{
-        "Effect": "Allow",
-        "Action": "codepipeline:StartPipelineExecution",
-        "Resource": {
-          "Fn::Join": [
-            "",
-            [
-              "arn:aws:codepipeline:",
-              {
-                "Ref": "AWS::Region"
-              },
-              ":",
-              {
-                "Ref": "AWS::AccountId"
-              },
-              ":WebAppRepo-master"
-            ]
-          ]
-        }
-      }]
-      }
-    }]            
-    }
-  },
-
-    "AmazonCloudWatchEventRuleMasterPipeline": {
-      "Type": "AWS::Events::Rule",
-      "Properties": {
-          "EventPattern": {
-              "source": [
-                  "aws.codecommit"
-              ],
-              "detail-type": [
-                  "CodeCommit Repository State Change"
-              ],
-              "resources": [
-                  {
-                      "Fn::Join": [
-                          "",
-                          [
-                              "arn:aws:codecommit:",
-                              {
-                                  "Ref": "AWS::Region"
-                              },
-                              ":",
-                              {
-                                  "Ref": "AWS::AccountId"
-                              },
-                              ":WebAppRepo"
-                          ]
-                      ]
-                  }
-              ],
-              "detail": {
-                  "event": [
-                      "referenceCreated",
-                      "referenceUpdated"
-                  ],
-                  "referenceType": [
-                      "branch"
-                  ],
-                  "referenceName": [
-                    {"Ref":"MainBranchName"}
-                  ]
-              }
-          },
-          "Targets": [
-              {
-                  "Arn": {
-                      "Fn::Join": [
-                          "",
-                          [
-                              "arn:aws:codepipeline:",
-                              {
-                                  "Ref": "AWS::Region"
-                              },
-                              ":",
-                              {
-                                  "Ref": "AWS::AccountId"
-                              },
-                              ":WebAppRepo-master"
-                          ]
-                      ]
-                  },
-                  "RoleArn": {
-                      "Fn::GetAtt": [
-                          "AmazonCloudWatchEventRoleMasterPipeline",
-                          "Arn"
-                      ]
-                  },
-                  "Id": "codepipeline-AppPipeline"
-              }
-          ]
-      }
-    },
-
-    "S3Bucket": {
-      "Type": "AWS::S3::Bucket",
-      "Properties": {
-        "BucketName" : { "Fn::Join" : ["", [ "cicd-demo-", { "Ref": "AWS::Region" } , "-", {"Ref" : "AWS::AccountId"} ]] },
-        "VersioningConfiguration" : {
-          "Status" : "Enabled"
-        },
-        "Tags" : [
-          {"Key" : "Name", "Value" : "CICDWorkshop-S3Bucket" }
-        ]
-      }
-    }
-  },
-
-  "Outputs" : {
-
-  }
-}
+AWSTemplateFormatVersion: 2010-09-09
+Description: 'Roles, S3 bucket, CodeDeploy and CodePipeline setup'
+Parameters:
+  MainBranchName:
+    Type: String
+    Default: master
+    Description: Enter main branch name. Default is master.
+  DevBranchName:
+    Type: String
+    Default: develop
+    Description: Enter development branch name. Default is develop.
+Resources:
+  WebAppRepo:
+    Type: 'AWS::CodeCommit::Repository'
+    Properties:
+      RepositoryName: WebAppRepo
+      RepositoryDescription: a sample java application
+  CodeBuildTrustRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Sid: '1'
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+  CodeBuildPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: CodeBuildPolicy
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:aws:logs:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':log-group:/aws/codebuild/WebAppRepo'
+              - !Join 
+                - ''
+                - - 'arn:aws:logs:'
+                  - !Ref 'AWS::Region'
+                  - ':'
+                  - !Ref 'AWS::AccountId'
+                  - ':log-group:/aws/codebuild/WebAppRepo:*'
+            Action:
+              - 'logs:CreateLogGroup'
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+          - Effect: Allow
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:aws:s3:::cicd-demo-'
+                  - !Ref 'AWS::Region'
+                  - '-'
+                  - !Ref 'AWS::AccountId'
+              - !Join 
+                - ''
+                - - 'arn:aws:s3:::cicd-demo-'
+                  - !Ref 'AWS::Region'
+                  - '-'
+                  - !Ref 'AWS::AccountId'
+                  - /*
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+              - 's3:GetObjectVersion'
+      Roles:
+        - !Ref CodeBuildTrustRole
+  CodeBuildProject:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: WebAppRepo
+      Description: This is demo web app project
+      ServiceRole: !GetAtt 
+        - CodeBuildTrustRole
+        - Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: linuxContainer
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/java:openjdk-8'
+        EnvironmentVariables: []
+      Source:
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 30
+      Tags: []
+  CodeDeployTrustRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service:
+                - codedeploy.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole'
+      Path: /
+  MyApp:
+    Type: 'AWS::CodeDeploy::Application'
+    Properties:
+      ApplicationName: WebAppRepo
+  DevDeploymentGroup:
+    DependsOn: CodeDeployTrustRole
+    Type: 'AWS::CodeDeploy::DeploymentGroup'
+    Properties:
+      ApplicationName: !Ref MyApp
+      DeploymentGroupName: WebAppRepo-develop
+      DeploymentConfigName: CodeDeployDefault.OneAtATime
+      ServiceRoleArn: !GetAtt 
+        - CodeDeployTrustRole
+        - Arn
+      Ec2TagFilters:
+        - Key: EnvironmentType
+          Value: Development
+          Type: KEY_AND_VALUE
+  ProdDeploymentGroup:
+    DependsOn: CodeDeployTrustRole
+    Type: 'AWS::CodeDeploy::DeploymentGroup'
+    Properties:
+      ApplicationName: !Ref MyApp
+      DeploymentGroupName: WebAppRepo-master
+      DeploymentConfigName: CodeDeployDefault.OneAtATime
+      ServiceRoleArn: !GetAtt 
+        - CodeDeployTrustRole
+        - Arn
+      Ec2TagFilters:
+        - Key: EnvironmentType
+          Value: Production
+          Type: KEY_AND_VALUE
+  CodePipelineTrustRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Sid: '1'
+            Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+  CodePipelineRolePolicies:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: CodePipelinePolicy
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:*'
+            Resource:
+              - '*'
+            Effect: Allow
+          - Action:
+              - 's3:PutBucketPolicy'
+              - 's3:PutObject'
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:aws:s3:::cicd-demo-'
+                  - !Ref 'AWS::Region'
+                  - '-'
+                  - !Ref 'AWS::AccountId'
+            Effect: Allow
+          - Action:
+              - 'codecommit:GetBranch'
+              - 'codecommit:GetCommit'
+              - 'codecommit:UploadArchive'
+              - 'codecommit:GetUploadArchiveStatus'
+              - 'codecommit:CancelUploadArchive'
+            Resource: '*'
+            Effect: Allow
+          - Action:
+              - 'codepipeline:*'
+              - 'iam:ListRoles'
+              - 'iam:PassRole'
+              - 'codedeploy:CreateDeployment'
+              - 'codedeploy:GetApplicationRevision'
+              - 'codedeploy:GetDeployment'
+              - 'codedeploy:GetDeploymentConfig'
+              - 'codedeploy:RegisterApplicationRevision'
+              - 'elasticbeanstalk:DescribeApplications'
+              - 'elasticbeanstalk:DescribeEnvironments'
+              - 'lambda:GetFunctionConfiguration'
+              - 'lambda:ListFunctions'
+            Resource: '*'
+            Effect: Allow
+          - Action:
+              - 'codebuild:StartBuild'
+              - 'codebuild:StopBuild'
+              - 'codebuild:BatchGet*'
+              - 'codebuild:Get*'
+              - 'codebuild:List*'
+              - 'codecommit:GetBranch'
+              - 'codecommit:GetCommit'
+              - 'codecommit:GetRepository'
+              - 'codecommit:ListBranches'
+              - 's3:GetBucketLocation'
+              - 's3:ListAllMyBuckets'
+            Effect: Allow
+            Resource: '*'
+          - Action:
+              - 'logs:GetLogEvents'
+            Effect: Allow
+            Resource: 'arn:aws:logs:*:*:log-group:/aws/codebuild/*:log-stream:*'
+      Roles:
+        - !Ref CodePipelineTrustRole
+  DevPipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    DependsOn: S3Bucket
+    Properties:
+      Name: WebAppRepo-develop
+      RoleArn: !GetAtt 
+        - CodePipelineTrustRole
+        - Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: ApplicationSource
+              InputArtifacts: []
+              ActionTypeId:
+                Version: '1'
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+              OutputArtifacts:
+                - Name: WebAppRepo-SourceArtifact
+              Configuration:
+                RepositoryName: WebAppRepo
+                BranchName: !Ref DevBranchName
+                PollForSourceChanges: false
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: ApplicationBuild
+              InputArtifacts:
+                - Name: WebAppRepo-SourceArtifact
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: '1'
+                Provider: CodeBuild
+              OutputArtifacts:
+                - Name: WebAppRepo-BuiltArtifact
+              Configuration:
+                ProjectName: WebAppRepo
+              RunOrder: 1
+        - Name: DevelopDeploy
+          Actions:
+            - Name: DevelopDeploy
+              InputArtifacts:
+                - Name: WebAppRepo-BuiltArtifact
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: '1'
+                Provider: CodeDeploy
+              Configuration:
+                ApplicationName: !Ref MyApp
+                DeploymentGroupName: !Ref DevDeploymentGroup
+              RunOrder: 1
+      ArtifactStore:
+        Type: S3
+        Location: !Join 
+          - ''
+          - - cicd-demo-
+            - !Ref 'AWS::Region'
+            - '-'
+            - !Ref 'AWS::AccountId'
+  MasterPipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    DependsOn: S3Bucket
+    Properties:
+      Name: WebAppRepo-master
+      RoleArn: !GetAtt 
+        - CodePipelineTrustRole
+        - Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: ApplicationSource
+              InputArtifacts: []
+              ActionTypeId:
+                Version: '1'
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+              OutputArtifacts:
+                - Name: WebAppRepo-SourceArtifact
+              Configuration:
+                RepositoryName: WebAppRepo
+                BranchName: !Ref MainBranchName
+                PollForSourceChanges: false
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: ApplicationBuild
+              InputArtifacts:
+                - Name: WebAppRepo-SourceArtifact
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: '1'
+                Provider: CodeBuild
+              OutputArtifacts:
+                - Name: WebAppRepo-BuiltArtifact
+              Configuration:
+                ProjectName: WebAppRepo
+              RunOrder: 1
+        - Name: MasterDeploy
+          Actions:
+            - Name: MasterDeploy
+              InputArtifacts:
+                - Name: WebAppRepo-BuiltArtifact
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: '1'
+                Provider: CodeDeploy
+              Configuration:
+                ApplicationName: !Ref MyApp
+                DeploymentGroupName: !Ref ProdDeploymentGroup
+              RunOrder: 1
+      ArtifactStore:
+        Type: S3
+        Location: !Join 
+          - ''
+          - - cicd-demo-
+            - !Ref 'AWS::Region'
+            - '-'
+            - !Ref 'AWS::AccountId'
+  AmazonCloudWatchEventRoleDevPipeline:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: cwe-pipeline-execution
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'codepipeline:StartPipelineExecution'
+                Resource: !Join 
+                  - ''
+                  - - 'arn:aws:codepipeline:'
+                    - !Ref 'AWS::Region'
+                    - ':'
+                    - !Ref 'AWS::AccountId'
+                    - ':WebAppRepo-develop'
+  AmazonCloudWatchEventRuleDevPipeline:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      EventPattern:
+        source:
+          - aws.codecommit
+        detail-type:
+          - CodeCommit Repository State Change
+        resources:
+          - !Join 
+            - ''
+            - - 'arn:aws:codecommit:'
+              - !Ref 'AWS::Region'
+              - ':'
+              - !Ref 'AWS::AccountId'
+              - ':WebAppRepo'
+        detail:
+          event:
+            - referenceCreated
+            - referenceUpdated
+          referenceType:
+            - branch
+          referenceName:
+            - !Ref DevBranchName
+      Targets:
+        - Arn: !Join 
+            - ''
+            - - 'arn:aws:codepipeline:'
+              - !Ref 'AWS::Region'
+              - ':'
+              - !Ref 'AWS::AccountId'
+              - ':WebAppRepo-develop'
+          RoleArn: !GetAtt 
+            - AmazonCloudWatchEventRoleDevPipeline
+            - Arn
+          Id: codepipeline-AppPipeline
+  AmazonCloudWatchEventRoleMasterPipeline:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: cwe-pipeline-execution
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'codepipeline:StartPipelineExecution'
+                Resource: !Join 
+                  - ''
+                  - - 'arn:aws:codepipeline:'
+                    - !Ref 'AWS::Region'
+                    - ':'
+                    - !Ref 'AWS::AccountId'
+                    - ':WebAppRepo-master'
+  AmazonCloudWatchEventRuleMasterPipeline:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      EventPattern:
+        source:
+          - aws.codecommit
+        detail-type:
+          - CodeCommit Repository State Change
+        resources:
+          - !Join 
+            - ''
+            - - 'arn:aws:codecommit:'
+              - !Ref 'AWS::Region'
+              - ':'
+              - !Ref 'AWS::AccountId'
+              - ':WebAppRepo'
+        detail:
+          event:
+            - referenceCreated
+            - referenceUpdated
+          referenceType:
+            - branch
+          referenceName:
+            - !Ref MainBranchName
+      Targets:
+        - Arn: !Join 
+            - ''
+            - - 'arn:aws:codepipeline:'
+              - !Ref 'AWS::Region'
+              - ':'
+              - !Ref 'AWS::AccountId'
+              - ':WebAppRepo-master'
+          RoleArn: !GetAtt 
+            - AmazonCloudWatchEventRoleMasterPipeline
+            - Arn
+          Id: codepipeline-AppPipeline
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Join 
+        - ''
+        - - cicd-demo-
+          - !Ref 'AWS::Region'
+          - '-'
+          - !Ref 'AWS::AccountId'
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: CICDWorkshop-S3Bucket
+Outputs: {}
